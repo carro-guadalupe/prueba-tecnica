@@ -1,0 +1,106 @@
+name: prueba-tecnica
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    command:
+      - postgres
+      - -c
+      - timezone=America/Argentina/Buenos_Aires
+    environment:
+      TZ: America/Argentina/Buenos_Aires
+      POSTGRES_DB: hl7db
+      POSTGRES_USER: "${DB_USER}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD}"
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/script:/docker-entrypoint-initdb.d:ro
+    networks:
+      - integracion
+      - acceso-local
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'
+      interval: "10s"
+      timeout: "5s"
+      retries: 10
+
+  mirth:
+    image: nextgenhealthcare/connect:4.5.2
+    environment:
+      TZ: America/Argentina/Buenos_Aires
+      DATABASE: postgres
+      DATABASE_URL: jdbc:postgresql://postgres:5432/mirthdb
+      DATABASE_USERNAME: "${DB_USER}"
+      DATABASE_PASSWORD: "${DB_PASSWORD}"
+      DATABASE_MAX_CONNECTIONS: "10"
+      VMOPTIONS: "-Xmx768m"
+      JAVA_TOOL_OPTIONS: "-Duser.timezone=America/Argentina/Buenos_Aires"
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8443:8443"
+      - "127.0.0.1:6661:6661"
+    volumes:
+      - mirth_appdata:/opt/connect/appdata
+    networks:
+      - integracion
+      - acceso-local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - /bin/bash
+        - -c
+        - "exec 3<>/dev/tcp/127.0.0.1/8443"
+      interval: "15s"
+      timeout: "5s"
+      retries: 20
+      start_period: "90s"
+
+  hapi-fhir:
+    image: hapiproject/hapi:v8.12.0-2
+    environment:
+      TZ: America/Argentina/Buenos_Aires
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hapidb
+      SPRING_DATASOURCE_USERNAME: "${DB_USER}"
+      SPRING_DATASOURCE_PASSWORD: "${DB_PASSWORD}"
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      HIBERNATE_DIALECT: ca.uhn.fhir.jpa.model.dialect.HapiFhirPostgresDialect
+      HAPI_FHIR_FHIR_VERSION: R4
+      JAVA_TOOL_OPTIONS: >-
+        -Xms256m -Xmx1536m
+        -Duser.timezone=America/Argentina/Buenos_Aires
+    ports:
+      - "127.0.0.1:8081:8080"
+    networks:
+      - integracion
+      - acceso-local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - java
+        - -cp
+        - /app
+        - HealthCheck
+      interval: "20s"
+      timeout: "10s"
+      retries: 20
+      start_period: "120s"
+
+networks:
+  integracion:
+    internal: true
+  acceso-local:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  mirth_appdata:

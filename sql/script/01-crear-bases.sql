@@ -1,0 +1,2 @@
+CREATE DATABASE mirthdb;
+CREATE DATABASE hapidb;
